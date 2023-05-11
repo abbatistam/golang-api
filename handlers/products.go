@@ -1,17 +1,48 @@
 package handlers
 
 import (
+	"fmt"
 	"main/database"
 	"main/models"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v4"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+func isTokenValid(token string) bool {
+
+	_, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		mySigningKey := []byte("my_secret_key")
+		return mySigningKey, nil
+	})
+
+	return err == nil
+}
+
 func GetAllProducts(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	if token == "" || len(token) < 7 || token[:7] != "Bearer " {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid authorization header",
+		})
+	}
+	if !isTokenValid(strings.Split(token, " ")[1]) {
+		e := models.Error{Message: "Unauthorized", StatusCode: 401}
+		return c.Status(401).JSON(e)
+	}
 	query := bson.D{{}}
+
+	if len(c.Query("search")) > 0 {
+		query = bson.D{{Key: "name", Value: primitive.Regex{Pattern: c.Query("search"), Options: "i"}}}
+	}
+
 	cursor, err := database.Mg.Db.Collection("Products").Find(c.Context(), query)
 	if err != nil {
 		//return c.Status(500).SendString(err.Error())
@@ -33,6 +64,11 @@ func GetAllProducts(c *fiber.Ctx) error {
 }
 
 func NewProduct(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	if !isTokenValid(strings.Split(token, " ")[1]) {
+		e := models.Error{Message: "Unauthorized", StatusCode: 401}
+		return c.Status(401).JSON(e)
+	}
 	collection := database.Mg.Db.Collection("Products")
 
 	product := new(models.Product)
@@ -62,6 +98,11 @@ func NewProduct(c *fiber.Ctx) error {
 }
 
 func EditProduct(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	if !isTokenValid(strings.Split(token, " ")[1]) {
+		e := models.Error{Message: "Unauthorized", StatusCode: 401}
+		return c.Status(401).JSON(e)
+	}
 	idParam := c.Params("id")
 	productID, err := primitive.ObjectIDFromHex(idParam)
 
@@ -109,6 +150,11 @@ func EditProduct(c *fiber.Ctx) error {
 }
 
 func DeleteProduct(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	if !isTokenValid(strings.Split(token, " ")[1]) {
+		e := models.Error{Message: "Unauthorized", StatusCode: 401}
+		return c.Status(401).JSON(e)
+	}
 	noteID, err := primitive.ObjectIDFromHex(
 		c.Params("id"),
 	)
